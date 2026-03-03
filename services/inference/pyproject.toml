@@ -8,9 +8,22 @@ dependencies = [
     "uvicorn[standard]>=0.30.0",
     "pydantic>=2.7.0",
     "pydantic-settings>=2.3.0",
+    # ML core
+    "torch>=2.3.0",
+    "torchvision>=0.18.0",
     "onnxruntime>=1.18.0",
     "transformers>=4.41.0",
-    "torch>=2.3.0",
+    "huggingface-hub>=0.23.0",
+    "safetensors>=0.4.0",
+    # Pillar-0 / RAVE (preprocessing DICOM → tenseur ML)
+    # RAVE : https://github.com/YalaLab/rave
+    "rave-medical>=0.1.0",  # pip install git+https://github.com/YalaLab/rave.git
+    # DICOM processing
+    "pydicom>=2.4.0",
+    "SimpleITK>=2.3.0",
+    "numpy>=1.26.0",
+    "scipy>=1.13.0",
+    # Infrastructure
     "redis>=5.0.0",
     "minio>=7.2.0",
     "httpx>=0.27.0",
@@ -18,6 +31,12 @@ dependencies = [
     "prometheus-fastapi-instrumentator>=7.0.0",
     "opentelemetry-api>=1.24.0",
     "ryx-shared>=0.1.0",
+]
+
+[project.optional-dependencies]
+# Installation RAVE depuis GitHub (si pas sur PyPI)
+rave-dev = [
+    "rave-medical @ git+https://github.com/YalaLab/rave.git",
 ]
 [build-system]
 requires = ["hatchling"]
