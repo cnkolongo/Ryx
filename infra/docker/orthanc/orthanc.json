@@ -1,0 +1,17 @@
+{
+  "Name": "RYX-Orthanc",
+  "HttpPort": 8042,
+  "DicomPort": 4242,
+  "AuthenticationEnabled": true,
+  "RegisteredUsers": {
+    "orthanc": "orthanc"
+  },
+  "StorageDirectory": "/var/lib/orthanc/db",
+  "RemoteAccessAllowed": true,
+  "DicomAet": "RYX-ORTHANC",
+  "DefaultEncoding": "Latin1",
+  "Plugins": [],
+  "HttpDescribeErrors": true,
+  "KeepAlive": true,
+  "TcpNoDelay": true
+}

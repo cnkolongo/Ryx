@@ -1,0 +1,183 @@
+version: "3.9"
+# Mode EDGE (offline) — services essentiels uniquement
+# Usage : make edge-dev
+#
+# Services actifs en mode edge :
+# - gateway (auth locale JWT)
+# - patient (Mini-DMI + SQLite)
+# - ingestion (stockage local)
+# - preprocess (OCR local EasyOCR)
+# - search (Meilisearch local)
+# - notification (dashboard local uniquement)
+#
+# Services différés (hub) :
+# - inference lourde (Pillar-0 full, MedGemma full)
+# - prédictions lourdes
+# - sync integration DMI
+
+services:
+
+  # Infrastructure edge minimale
+  redis-edge:
+    image: redis:7-alpine
+    container_name: ryx-edge-redis
+    command: redis-server --appendonly yes --maxmemory 256mb
+    volumes:
+      - redis_edge_data:/data
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  meilisearch-edge:
+    image: getmeili/meilisearch:v1.9
+    container_name: ryx-edge-meilisearch
+    environment:
+      MEILI_MASTER_KEY: edge-key
+      MEILI_ENV: development
+    volumes:
+      - meilisearch_edge_data:/meili_data
+    ports:
+      - "7700:7700"
+    restart: unless-stopped
+
+  # Services core edge
+  gateway:
+    image: ryx-gateway:latest
+    container_name: ryx-edge-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      RYX_MODE: edge
+      DATABASE_URL: sqlite+aiosqlite:///./data/ryx_edge.db
+      REDIS_URL: redis://redis-edge:6379
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-edge-dev-secret-change-me}
+    volumes:
+      - edge_data:/app/data
+    depends_on:
+      - redis-edge
+    restart: unless-stopped
+
+  patient:
+    image: ryx-patient:latest
+    container_name: ryx-edge-patient
+    ports:
+      - "8001:8001"
+    environment:
+      RYX_MODE: edge
+      DATABASE_URL: sqlite+aiosqlite:///./data/ryx_edge.db
+      REDIS_URL: redis://redis-edge:6379
+    volumes:
+      - edge_data:/app/data
+    depends_on:
+      - redis-edge
+    restart: unless-stopped
+
+  ingestion:
+    image: ryx-ingestion:latest
+    container_name: ryx-edge-ingestion
+    ports:
+      - "8002:8002"
+    environment:
+      RYX_MODE: edge
+      REDIS_URL: redis://redis-edge:6379
+      # MinIO → stockage local filesystem en mode edge
+      STORAGE_BACKEND: local
+      LOCAL_STORAGE_PATH: /app/data/documents
+    volumes:
+      - edge_data:/app/data
+    depends_on:
+      - redis-edge
+    restart: unless-stopped
+
+  preprocess:
+    image: ryx-preprocess:latest
+    container_name: ryx-edge-preprocess
+    environment:
+      RYX_MODE: edge
+      REDIS_URL: redis://redis-edge:6379
+    volumes:
+      - edge_data:/app/data
+    depends_on:
+      - redis-edge
+    restart: unless-stopped
+
+  search:
+    image: ryx-search:latest
+    container_name: ryx-edge-search
+    ports:
+      - "8008:8008"
+    environment:
+      RYX_MODE: edge
+      REDIS_URL: redis://redis-edge:6379
+      MEILISEARCH_URL: http://meilisearch-edge:7700
+      MEILISEARCH_KEY: edge-key
+      KNOWLEDGE_PACK_PATH: /data/knowledge-pack
+    volumes:
+      - knowledge_pack:/data/knowledge-pack:ro
+    depends_on:
+      - meilisearch-edge
+    restart: unless-stopped
+
+  notification:
+    image: ryx-notification:latest
+    container_name: ryx-edge-notification
+    ports:
+      - "8010:8010"
+    environment:
+      RYX_MODE: edge
+      REDIS_URL: redis://redis-edge:6379
+      # WhatsApp désactivé en mode edge offline
+      WHATSAPP_API_TOKEN: ""
+    depends_on:
+      - redis-edge
+    restart: unless-stopped
+
+  # Inference edge (MedGemma ONNX quantisé)
+  inference-edge:
+    image: ryx-inference:latest
+    container_name: ryx-edge-inference
+    environment:
+      RYX_MODE: edge
+      REDIS_URL: redis://redis-edge:6379
+      # Forcer mode ONNX quantisé
+      INFERENCE_BACKEND: onnx
+      MEDGEMMA_ONNX_PATH: /models/edge/medgemma-int8.onnx
+    volumes:
+      - edge_models:/models:ro
+    depends_on:
+      - redis-edge
+    restart: unless-stopped
+
+  web:
+    image: ryx-web:latest
+    container_name: ryx-edge-web
+    ports:
+      - "3000:3000"
+    environment:
+      GATEWAY_URL: http://gateway:8000
+      NODE_ENV: production
+    depends_on:
+      - gateway
+    restart: unless-stopped
+
+volumes:
+  redis_edge_data:
+  meilisearch_edge_data:
+  edge_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${EDGE_DATA_PATH:-./edge-data}
+  knowledge_pack:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${KNOWLEDGE_PACK_PATH:-./knowledge-pack}
+  edge_models:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${EDGE_MODELS_PATH:-./models/edge}

@@ -1,0 +1,95 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.env
+.venv
+ENV/
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+*.log
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.npm
+.yarn/
+*.lock
+!pnpm-lock.yaml
+!poetry.lock
+
+# uv
+.uv/
+
+# Docker
+.dockerignore
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment
+.env
+.env.local
+.env.*.local
+*.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ML models (large files → Git LFS ou stockage externe)
+*.onnx
+*.pt
+*.pth
+*.safetensors
+*.gguf
+*.bin
+models/weights/
+
+# DICOM data (PHI)
+*.dcm
+dicom_data/
+orthanc_data/
+
+# MinIO data
+minio_data/
+
+# Logs
+logs/
+*.log
+log/
+
+# Test artifacts
+.coverage
+coverage.xml
+test-results/
+allure-results/
+
+# Compiled docs
+docs/_build/
+
+# Secrets
+secrets/
+*.pem
+*.key
+*.crt
+*.p12

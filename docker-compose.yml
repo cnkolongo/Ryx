@@ -1,0 +1,261 @@
+version: "3.9"
+# Mode HUB (complet) — tous les services
+# Usage : make dev  (après make infra-up)
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  env_file: .env
+  networks:
+    - ryx-network
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+x-python-service: &python-service
+  <<: *service-defaults
+  build:
+    context: .
+    dockerfile: infra/docker/python-service.Dockerfile
+
+services:
+
+  # ─── Infrastructure (réutilisée depuis docker-compose.infra.yml) ──────────
+
+  postgres:
+    extends:
+      file: docker-compose.infra.yml
+      service: postgres
+
+  redis:
+    extends:
+      file: docker-compose.infra.yml
+      service: redis
+
+  minio:
+    extends:
+      file: docker-compose.infra.yml
+      service: minio
+
+  meilisearch:
+    extends:
+      file: docker-compose.infra.yml
+      service: meilisearch
+
+  orthanc:
+    extends:
+      file: docker-compose.infra.yml
+      service: orthanc
+
+  # ─── Services RYX ─────────────────────────────────────────────────────────
+
+  gateway:
+    <<: *python-service
+    build:
+      context: services/gateway
+      dockerfile: ../../infra/docker/python-service.Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      SERVICE_PORT: 8000
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./services/gateway:/app
+      - ./packages:/packages
+
+  patient:
+    <<: *python-service
+    build:
+      context: services/patient
+      dockerfile: ../../infra/docker/python-service.Dockerfile
+    ports:
+      - "8001:8001"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+    volumes:
+      - ./services/patient:/app
+      - ./packages:/packages
+
+  ingestion:
+    <<: *python-service
+    build:
+      context: services/ingestion
+      dockerfile: ../../infra/docker/python-service.Dockerfile
+    ports:
+      - "8002:8002"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload
+    volumes:
+      - ./services/ingestion:/app
+      - ./packages:/packages
+    depends_on:
+      - minio
+      - redis
+
+  preprocess:
+    <<: *python-service
+    build:
+      context: services/preprocess
+      dockerfile: ../../infra/docker/python-service.Dockerfile
+    ports:
+      - "8003:8003"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
+    volumes:
+      - ./services/preprocess:/app
+      - ./packages:/packages
+    depends_on:
+      - redis
+      - minio
+
+  imaging:
+    <<: *python-service
+    build:
+      context: services/imaging
+      dockerfile: ../../infra/docker/python-service.Dockerfile
+    ports:
+      - "8004:8004"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8004 --reload
+    volumes:
+      - ./services/imaging:/app
+      - ./packages:/packages
+    depends_on:
+      - orthanc
+      - redis
+
+  inference:
+    <<: *python-service
+    build:
+      context: services/inference
+      dockerfile: ../../infra/docker/python-service.Dockerfile
+    ports:
+      - "8005:8005"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8005 --reload
+    volumes:
+      - ./services/inference:/app
+      - ./packages:/packages
+      - model_weights:/models:ro
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  evidence:
+    <<: *python-service
+    build:
+      context: services/evidence
+      dockerfile: ../../infra/docker/python-service.Dockerfile
+    ports:
+      - "8006:8006"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8006 --reload
+    volumes:
+      - ./services/evidence:/app
+      - ./packages:/packages
+    depends_on:
+      - redis
+
+  prediction:
+    <<: *python-service
+    build:
+      context: services/prediction
+      dockerfile: ../../infra/docker/python-service.Dockerfile
+    ports:
+      - "8007:8007"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8007 --reload
+    volumes:
+      - ./services/prediction:/app
+      - ./packages:/packages
+    depends_on:
+      - redis
+
+  search:
+    <<: *python-service
+    build:
+      context: services/search
+      dockerfile: ../../infra/docker/python-service.Dockerfile
+    ports:
+      - "8008:8008"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8008 --reload
+    volumes:
+      - ./services/search:/app
+      - ./packages:/packages
+    depends_on:
+      - meilisearch
+      - redis
+
+  integration:
+    <<: *python-service
+    build:
+      context: services/integration
+      dockerfile: ../../infra/docker/python-service.Dockerfile
+    ports:
+      - "8009:8009"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8009 --reload
+    volumes:
+      - ./services/integration:/app
+      - ./packages:/packages
+    depends_on:
+      - redis
+
+  notification:
+    <<: *python-service
+    build:
+      context: services/notification
+      dockerfile: ../../infra/docker/python-service.Dockerfile
+    ports:
+      - "8010:8010"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8010 --reload
+    volumes:
+      - ./services/notification:/app
+      - ./packages:/packages
+    depends_on:
+      - redis
+
+  observability:
+    <<: *python-service
+    build:
+      context: services/observability
+      dockerfile: ../../infra/docker/python-service.Dockerfile
+    ports:
+      - "8011:8011"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8011 --reload
+    volumes:
+      - ./services/observability:/app
+      - ./packages:/packages
+    depends_on:
+      - redis
+
+  web:
+    build:
+      context: apps/web
+      dockerfile: ../../infra/docker/nextjs.Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      GATEWAY_URL: http://gateway:8000
+      NODE_ENV: development
+    volumes:
+      - ./apps/web:/app
+      - /app/node_modules
+      - /app/.next
+    command: pnpm dev
+    depends_on:
+      - gateway
+    networks:
+      - ryx-network
+
+volumes:
+  model_weights:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${MODELS_PATH:-./models}
+
+networks:
+  ryx-network:
+    external: true
+    name: ryx-network

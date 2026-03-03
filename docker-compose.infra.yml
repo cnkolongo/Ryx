@@ -1,0 +1,106 @@
+version: "3.9"
+# Infrastructure seule — PostgreSQL, Redis, MinIO, Meilisearch, Orthanc
+# Usage : make infra-up
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: ryx-postgres
+    environment:
+      POSTGRES_USER: ryx
+      POSTGRES_PASSWORD: ryx
+      POSTGRES_DB: ryx
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ryx -d ryx"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: ryx-redis
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: ryx-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ryxdev
+      MINIO_ROOT_PASSWORD: ryxdev123
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"    # Console web
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.9
+    container_name: ryx-meilisearch
+    environment:
+      MEILI_MASTER_KEY: ryxdev-meili-key
+      MEILI_ENV: development
+    volumes:
+      - meilisearch_data:/meili_data
+    ports:
+      - "7700:7700"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  orthanc:
+    image: orthancteam/orthanc:latest
+    container_name: ryx-orthanc
+    environment:
+      ORTHANC_NAME: RYX-Orthanc
+      ORTHANC_USERNAME: orthanc
+      ORTHANC_PASSWORD: orthanc
+    volumes:
+      - orthanc_data:/var/lib/orthanc/db
+      - ./infra/docker/orthanc/orthanc.json:/etc/orthanc/orthanc.json:ro
+    ports:
+      - "8042:8042"    # REST API
+      - "4242:4242"    # DICOM port
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  meilisearch_data:
+  orthanc_data:
+
+networks:
+  default:
+    name: ryx-network
