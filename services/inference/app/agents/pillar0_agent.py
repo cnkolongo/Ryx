@@ -175,19 +175,77 @@ class Pillar0Agent:
 
     async def _fetch_dicom_paths(self, study_id: str) -> list[str]:
         """
-        Récupérer les chemins des fichiers DICOM depuis Orthanc.
-        TODO: implémenter avec l'API REST Orthanc.
+        Télécharger les fichiers DICOM d'une étude depuis Orthanc.
+
+        Orthanc REST API :
+          GET /studies/{id}/instances  → liste des instance IDs
+          GET /instances/{id}/file     → fichier .dcm brut
+        Les fichiers sont mis en cache dans /tmp/ryx-dicom/{study_id}/.
         """
         import httpx
-        orthanc_url = self.config.orthanc_url
+        from pathlib import Path
+
+        orthanc_url = self.config.orthanc_url.rstrip("/")
         auth = (self.config.orthanc_username, self.config.orthanc_password)
 
-        # Télécharger les instances d'une étude depuis Orthanc
-        # GET /studies/{id}/instances → liste des instance IDs
-        # GET /instances/{id}/file   → fichier .dcm brut
-        # TODO: télécharger dans /tmp et retourner les chemins locaux
-        logger.warning("pillar0_agent.dicom_fetch_not_implemented", study_id=study_id)
-        return []  # TODO
+        # Dossier de cache local
+        cache_dir = Path(f"/tmp/ryx-dicom/{study_id}")
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        # Vérifier si déjà téléchargé (idempotence entre redémarrages)
+        existing = sorted(cache_dir.glob("*.dcm"))
+        if existing:
+            logger.info(
+                "pillar0_agent.dicom_cache_hit",
+                study_id=study_id,
+                count=len(existing),
+            )
+            return [str(p) for p in existing]
+
+        async with httpx.AsyncClient(auth=auth, timeout=60.0) as client:
+            # 1. Récupérer la liste des instances DICOM de l'étude
+            resp = await client.get(f"{orthanc_url}/studies/{study_id}/instances")
+            resp.raise_for_status()
+            instances = resp.json()
+
+            if not instances:
+                logger.warning(
+                    "pillar0_agent.dicom_no_instances",
+                    study_id=study_id,
+                    orthanc_url=orthanc_url,
+                )
+                return []
+
+            logger.info(
+                "pillar0_agent.dicom_downloading",
+                study_id=study_id,
+                instance_count=len(instances),
+            )
+
+            # 2. Télécharger chaque instance .dcm
+            paths = []
+            for i, instance in enumerate(instances):
+                instance_id = instance["ID"]
+                dest = cache_dir / f"{i:04d}_{instance_id}.dcm"
+
+                if not dest.exists():
+                    file_resp = await client.get(
+                        f"{orthanc_url}/instances/{instance_id}/file"
+                    )
+                    file_resp.raise_for_status()
+                    dest.write_bytes(file_resp.content)
+
+                paths.append(str(dest))
+
+            # Trier par nom de fichier → ordre de slice correct
+            paths.sort()
+            logger.info(
+                "pillar0_agent.dicom_downloaded",
+                study_id=study_id,
+                count=len(paths),
+                cache_dir=str(cache_dir),
+            )
+            return paths
 
     def _should_run_local(self) -> bool:
         """Hub → toujours local. Edge → seulement si GPU disponible."""
@@ -201,7 +259,21 @@ class Pillar0Agent:
         Edge sans GPU : sérialiser le job pour traitement hub ultérieur.
         Stocké en SQLite local → sync dès que connectivité disponible.
         """
-        logger.info("pillar0_agent.queued_for_hub", study_id=study_id)
-        # TODO: persister dans JobQueue SQLite locale
-        # from ..store.job_queue import EdgeJobQueue
-        # await EdgeJobQueue.enqueue("pillar0", {"study_id": study_id, ...})
+        from ..store.job_queue import EdgeJobQueue
+
+        queue = EdgeJobQueue()
+        job_id = await queue.enqueue(
+            job_type="pillar0",
+            payload={
+                "study_id": study_id,
+                "modality": event.payload.get("modality"),
+                "body_part": event.payload.get("body_part"),
+                "correlation_id": event.correlation_id,
+                "original_job_id": event.payload.get("job_id"),
+            },
+        )
+        logger.info(
+            "pillar0_agent.queued_for_hub",
+            study_id=study_id,
+            queue_job_id=job_id,
+        )
