@@ -10,6 +10,7 @@ from ryx_shared.config import RyxConfig
 from ryx_shared.events import EventBus
 
 from .agents.indexer_agent import IndexerAgent
+from .meilisearch_client import ensure_indexes
 from .routes import health, search
 
 logger = structlog.get_logger(__name__)
@@ -19,6 +20,11 @@ event_bus = EventBus(config.redis_url)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Init Meilisearch indexes (idempotent)
+    try:
+        await ensure_indexes()
+    except Exception as e:
+        logger.warning("search.meilisearch_unavailable", error=str(e))
     await event_bus.connect()
     agent = IndexerAgent(event_bus)
     task = asyncio.create_task(agent.run())
