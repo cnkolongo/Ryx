@@ -4,9 +4,14 @@ import asyncio
 import uuid
 import structlog
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from ryx_shared.events import EventBus
 from ryx_shared.claims import Claim, ClaimStatus
 from ryx_evidence_guard import EvidenceGuard
+
+from ..database import AsyncSessionLocal
+from ..models.claim import ClaimRow
 
 logger = structlog.get_logger(__name__)
 guard = EvidenceGuard()
@@ -15,7 +20,7 @@ guard = EvidenceGuard()
 class EvidenceGuardAgent:
     """
     Écoute : medgemma.completed, prediction.completed
-    Fait : valider tous les claims (EvidenceGuard policy)
+    Fait : valider tous les claims (EvidenceGuard policy) + persister en DB
     Publie : evidence.validate.completed | evidence.blocked
 
     SLA cible : < 1s par claim (in-memory policy engine)
@@ -49,18 +54,18 @@ class EvidenceGuardAgent:
                 await asyncio.sleep(2)
 
     async def _process(self, msg_id: str, event, topic: str):
-        """Valider batch de claims depuis un event."""
+        """Valider batch de claims depuis un event + persister en DB."""
         report_id = event.payload.get("report_id") or event.payload.get("prediction_id")
+        patient_id = event.payload.get("patient_id")
+        encounter_id = event.payload.get("encounter_id")
         raw_claims = event.payload.get("claims", [])
 
         if not raw_claims:
             await self.event_bus.ack(topic, self.GROUP, msg_id)
             return
 
-        # Désérialiser les claims
+        # Désérialiser et valider les claims
         claims = [Claim.model_validate(c) for c in raw_claims]
-
-        # Valider avec EvidenceGuard
         results = guard.validate_batch(claims)
         stats = guard.get_stats(results)
 
@@ -70,9 +75,33 @@ class EvidenceGuardAgent:
             **stats,
         )
 
+        # Persister tous les claims en DB
+        async with AsyncSessionLocal() as db:
+            for result in results:
+                if result.validated_claim is None:
+                    continue
+                claim = result.validated_claim
+                row = ClaimRow(
+                    claim_id=str(claim.claim_id),
+                    encounter_id=encounter_id,
+                    patient_id=patient_id,
+                    report_id=report_id,
+                    type=claim.type.value,
+                    text=claim.text,
+                    criticality=claim.criticality.value,
+                    status=claim.status.value,
+                    blocked_reason=claim.blocked_reason,
+                    evidence_refs=[
+                        ref.model_dump(mode="json") for ref in claim.evidence_refs
+                    ],
+                    validated_by=claim.validated_by,
+                    validated_at=claim.validated_at,
+                )
+                db.add(row)
+            await db.commit()
+
         # Publier events pour les claims bloqués
-        blocked_results = [r for r in results if not r.valid]
-        for result in blocked_results:
+        for result in [r for r in results if not r.valid]:
             await self.event_bus.publish(
                 "evidence.blocked",
                 {
@@ -90,7 +119,7 @@ class EvidenceGuardAgent:
             "evidence.validate.completed",
             {
                 "report_id": report_id,
-                "patient_id": event.payload.get("patient_id"),
+                "patient_id": patient_id,
                 "valid_count": stats["valid"],
                 "blocked_count": stats["blocked"],
                 "valid_claims": [c.model_dump(mode="json") for c in valid_claims],

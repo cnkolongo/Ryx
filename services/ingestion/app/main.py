@@ -7,19 +7,29 @@ from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from ryx_shared.config import RyxConfig
+from ryx_shared.events import EventBus
 from .routes import documents, health
 from .storage import init_minio
 
 logger = structlog.get_logger(__name__)
 config = RyxConfig()
 
+# Singleton EventBus — initialisé au démarrage, partagé par les routes
+event_bus: EventBus | None = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global event_bus
     logger.info("ingestion_service.starting")
     await init_minio()
+    event_bus = EventBus(redis_url=config.redis_url)
+    await event_bus.connect()
+    app.state.event_bus = event_bus
     yield
     logger.info("ingestion_service.stopping")
+    if event_bus:
+        await event_bus.disconnect()
 
 
 app = FastAPI(
