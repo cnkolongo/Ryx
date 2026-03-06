@@ -54,11 +54,13 @@ def create_access_token(user_id: UUID, role: Role) -> str:
 
 
 def create_refresh_token(user_id: UUID) -> str:
+    import secrets
     expire = datetime.utcnow() + timedelta(days=config.jwt_refresh_token_expire_days)
     payload = {
         "sub": str(user_id),
         "exp": expire,
         "type": "refresh",
+        "jti": secrets.token_hex(16),  # Unique par token — évite hash collision
     }
     return jwt.encode(payload, config.jwt_secret_key, algorithm=config.jwt_algorithm)
 

@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from pydantic import BaseModel
+import sqlalchemy as sa
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,9 +53,9 @@ async def create_patient(
     patient_id = str(uuid4())
     row = PatientRow(
         patient_id=patient_id,
-        demographics=body.demographics.model_dump() if body.demographics else None,
-        identifiers=[i.model_dump() for i in body.identifiers],
-        external_ids=[e.model_dump() for e in body.external_ids],
+        demographics=body.demographics.model_dump(mode="json") if body.demographics else None,
+        identifiers=[i.model_dump(mode="json") for i in body.identifiers],
+        external_ids=[e.model_dump(mode="json") for e in body.external_ids],
         quality_flags=body.quality_flags,
     )
     db.add(row)
@@ -81,8 +82,8 @@ async def list_patients(
     if q:
         like = f"%{q}%"
         json_filter = or_(
-            PatientRow.demographics["last_name"].astext.ilike(like),
-            PatientRow.demographics["first_name"].astext.ilike(like),
+            sa.cast(PatientRow.demographics["last_name"], sa.String).ilike(like),
+            sa.cast(PatientRow.demographics["first_name"], sa.String).ilike(like),
         )
         stmt = stmt.where(json_filter)
         count_stmt = count_stmt.where(json_filter)

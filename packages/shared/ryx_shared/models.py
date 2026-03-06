@@ -112,7 +112,7 @@ class Encounter(BaseModel):
     location: str | None = None
     encounter_type: EncounterType = EncounterType.OUTPATIENT
     status: EncounterStatus = EncounterStatus.ACTIVE
-    created_by: UUID
+    created_by: UUID | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

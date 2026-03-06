@@ -93,7 +93,7 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
 
 
-@router.post("/auth/refresh", response_model=TokenResponse)
+@router.post("/refresh", response_model=TokenResponse)
 async def refresh_token(body: dict, db: AsyncSession = Depends(get_db)):
     """Renouveler l'access token via refresh token."""
     token = body.get("refresh_token", "")
@@ -141,7 +141,7 @@ async def refresh_token(body: dict, db: AsyncSession = Depends(get_db)):
     return TokenResponse(access_token=new_access, refresh_token=new_refresh)
 
 
-@router.get("/auth/me", response_model=UserResponse)
+@router.get("/me", response_model=UserResponse)
 async def get_me(
     user: Annotated[TokenPayload, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),
@@ -153,7 +153,7 @@ async def get_me(
     return UserResponse(user_id=UUID(row.user_id), username=row.username, role=row.role)
 
 
-@router.post("/auth/logout")
+@router.post("/logout")
 async def logout(
     user: Annotated[TokenPayload, Depends(get_current_user)],
     body: dict,
@@ -174,7 +174,7 @@ async def logout(
     return {"message": "Déconnecté avec succès"}
 
 
-@router.post("/auth/users", response_model=UserResponse, status_code=201)
+@router.post("/users", response_model=UserResponse, status_code=201)
 async def create_user(
     body: CreateUserRequest,
     db: AsyncSession = Depends(get_db),

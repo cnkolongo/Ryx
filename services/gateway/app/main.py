@@ -19,8 +19,6 @@ config = RyxConfig()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("gateway.starting", mode=config.ryx_mode, env=config.ryx_env)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
     yield
     logger.info("gateway.stopping")
     await engine.dispose()
